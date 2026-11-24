@@ -34,6 +34,7 @@ public class InboundService {
     private final WarehouseLocationMapper locationMapper; // 按编码或主键找库位
     private final InventoryMapper inventoryMapper; // 按货品 + 库位记账
     private final StockFlowMapper stockFlowMapper; // 写流水，和入库同一次提交
+    private final LessonSwitches switches; // 课堂开关，决定走有漏洞的一侧还是修好的一侧
 
     public InboundOrder create() { // 没有页面字段。单号和状态都在这里生成
         InboundOrderEntity entity = new InboundOrderEntity(); // 准备要插入的那一行，此时还没有 id
@@ -71,13 +72,26 @@ public class InboundService {
         if (lines.isEmpty()) { // 没有行就没有数量可记
             throw new BusinessException("INBOUND_LINE_REQUIRED", "入库单还没有行");
         }
+        pauseAfterDraftRead(); // 课堂复现用。默认不停，设了毫秒数就让两次请求都先读到 DRAFT
         for (InboundOrderLineEntity line : lines) { // 每一行单独记到自己的货品和库位
             addInventory(line.getSkuId(), line.getLocationId(), line.getQuantity());
             writeFlow(order.getOrderNo(), line); // 流水，和下面改状态在同一个事务里
         }
         order.setStatus(InboundOrder.COMPLETED); // 数量记下之后，同一事务里把草稿改成完成
-        orderMapper.updateStatus(order); // SQL 只改 status 这一列
+        orderMapper.updateStatus(order); // off 的旧写法：按 id 无条件改，两个请求都能改到
         return toDomain(orderMapper.getById(order.getId())); // 再查一次，返回的 status 是 COMPLETED
+    }
+
+    private void pauseAfterDraftRead() {
+        long pause = switches.outboundReadPauseMs(); // 复用出库的课堂停顿，来自 app.lesson.outbound-read-pause-ms
+        if (pause <= 0) { // 默认 0，不停
+            return;
+        }
+        try {
+            Thread.sleep(pause); // 停在读完 DRAFT、还没改状态之前，让另一次请求也读到 DRAFT
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt(); // 保留中断标记，交给外层处理
+        }
     }
 
     private void addInventory(Long skuId, Long locationId, int quantity) {

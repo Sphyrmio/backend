@@ -52,6 +52,7 @@ logging:
 # trace-id：off 不写入请求号；on 写入 MDC 和响应头 X-Trace-Id。
 # optimistic-lock：on 更新库存时带上读到的 version，对不上返回 STOCK_CONFLICT；off 只按 id 改，演示两次同时出库只扣一次。
 # outbound-read-pause-ms：出库读到数量后停多少毫秒。演示两次请求同时读到旧数时设成 3000。
+# inbound-complete-once：on 入库单靠数据库条件更新只完成一次，后到的返回 400 INBOUND_NOT_DRAFT；off 用旧写法，能复现同一张单被完成两次。
 # datasource-host：本机进程用 localhost；容器里必须是 Compose 服务名 mysql。
 db:
   name: pro_skill
@@ -63,6 +64,7 @@ app:
     trace-id: off
     optimistic-lock: on
     outbound-read-pause-ms: 0
+    inbound-complete-once: on
     datasource-host: localhost
   jwt:
     # 256-bit Base64 编码的 HMAC-SHA256 签名密钥（生产环境请通过环境变量覆盖）

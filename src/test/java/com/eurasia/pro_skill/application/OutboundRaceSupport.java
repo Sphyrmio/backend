@@ -72,6 +72,29 @@ abstract class OutboundRaceSupport {
         }
     }
 
+    // 同一张入库单同时完成两次。返回每一次的结果：成功是 COMPLETED，失败是错误码。
+    protected List<String> completeInboundTogether(Long first, Long second) throws Exception {
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            List<Callable<String>> tasks = List.of(() -> completeInboundOne(first), () -> completeInboundOne(second));
+            List<String> results = new ArrayList<>();
+            for (Future<String> future : pool.invokeAll(tasks)) {
+                results.add(future.get());
+            }
+            return results;
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    private String completeInboundOne(Long id) {
+        try {
+            return inboundService().complete(id).getStatus();
+        } catch (BusinessException e) {
+            return e.getCode();
+        }
+    }
+
     protected Integer quantity() {
         return jdbc().queryForObject(
                 "SELECT quantity FROM inventory WHERE sku_id=? AND location_id=?", Integer.class, skuId(), locationId());
