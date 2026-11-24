@@ -26,6 +26,11 @@ public interface InboundOrderMapper {
     @Update("UPDATE inbound_order SET status = #{status} WHERE id = #{id}")
     int updateStatus(InboundOrderEntity entity); // 改到这一行就返回 1
 
+    // 只有这一行现在还是 DRAFT，才把状态改成 #{status}。
+    // 两个请求同时完成同一张单时，后到的那个条件不成立，影响行数是 0，靠数据库挡住第二次。
+    @Update("UPDATE inbound_order SET status = #{status} WHERE id = #{id} AND status = 'DRAFT'")
+    int updateStatusIfDraft(InboundOrderEntity entity); // 改到这一行才是 1
+
     // #{id} 是调用时传入的主键，不是写死的 1。查不到返回 null。
     @Select("SELECT * FROM inbound_order WHERE id = #{id}")
     InboundOrderEntity getById(Long id);

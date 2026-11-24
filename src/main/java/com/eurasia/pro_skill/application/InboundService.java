@@ -73,12 +73,22 @@ public class InboundService {
             throw new BusinessException("INBOUND_LINE_REQUIRED", "入库单还没有行");
         }
         pauseAfterDraftRead(); // 课堂复现用。默认不停，设了毫秒数就让两次请求都先读到 DRAFT
+        order.setStatus(InboundOrder.COMPLETED); // 下面两个分支最终都要把状态写成完成
+        if (switches.inboundCompleteOnce()) { // on：先让数据库把这张单从草稿改成完成
+            // 条件里带 status = 'DRAFT'：两个请求同时进来时，先提交的那个改到 1 行，后到的改到 0 行。
+            // 这是靠数据库的行锁和条件挡住第二次，不是靠 Java 的 synchronized，后端跑两台也有效。
+            int claimed = orderMapper.updateStatusIfDraft(order);
+            if (claimed == 0) { // 状态已经不是你读到的 DRAFT，说明别人先完成了
+                throw new BusinessException("INBOUND_NOT_DRAFT", "INBOUND_NOT_DRAFT：只有草稿可以继续：" + order.getOrderNo());
+            }
+        }
         for (InboundOrderLineEntity line : lines) { // 每一行单独记到自己的货品和库位
             addInventory(line.getSkuId(), line.getLocationId(), line.getQuantity());
-            writeFlow(order.getOrderNo(), line); // 流水，和下面改状态在同一个事务里
+            writeFlow(order.getOrderNo(), line); // 流水，和上面改状态在同一个事务里
         }
-        order.setStatus(InboundOrder.COMPLETED); // 数量记下之后，同一事务里把草稿改成完成
-        orderMapper.updateStatus(order); // off 的旧写法：按 id 无条件改，两个请求都能改到
+        if (!switches.inboundCompleteOnce()) { // off：旧写法，按 id 无条件改状态，两个请求都能改到
+            orderMapper.updateStatus(order); // SQL 只改 status 这一列，不看原来是不是 DRAFT
+        }
         return toDomain(orderMapper.getById(order.getId())); // 再查一次，返回的 status 是 COMPLETED
     }
 
